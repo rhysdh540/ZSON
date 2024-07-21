@@ -189,7 +189,7 @@ val advzipInstalled by lazy {
 tasks.withType<org.gradle.jvm.tasks.Jar> {
     doLast {
         if (!advzipInstalled) {
-            println("advzip is not installed; skipping re-deflation of $name")
+            println("advzip is not installed; skipping re-deflation otf $name")
             return@doLast
         }
 
