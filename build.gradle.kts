@@ -186,18 +186,14 @@ val advzipInstalled by lazy {
     }
 }
 
-tasks.matching { it is Jar || it is DowngradeJar }.configureEach {
+tasks.withType<org.gradle.jvm.tasks.Jar> {
     doLast {
         if (!advzipInstalled) {
             println("advzip is not installed; skipping re-deflation of $name")
             return@doLast
         }
 
-        val zip = when (this) {
-            is Jar -> archiveFile.get().asFile
-            is DowngradeJar -> archiveFile.get().asFile
-            else -> error("Unknown task type")
-        }
+        val zip = archiveFile.get().asFile
 
         try {
             val process = ProcessBuilder("advzip", "-z", "-4", zip.absolutePath).start()
