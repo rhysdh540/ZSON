@@ -7,7 +7,6 @@ import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.MethodNode;
 import xyz.wagyourtail.jvmdg.util.Function;
 import xyz.wagyourtail.jvmdg.version.VersionProvider;
-import xyz.wagyourtail.zson.jvmdg.j5.stub.J_L_I_LambdaMetafactory;
 import xyz.wagyourtail.zson.jvmdg.j5.stub.J_L_Throwable;
 
 import java.util.Iterator;
