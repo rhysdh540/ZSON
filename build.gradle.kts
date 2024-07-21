@@ -193,12 +193,10 @@ tasks.matching { it is Jar || it is DowngradeJar }.configureEach {
             return@doLast
         }
 
-        val zip = if (this is Jar) {
-            archiveFile.get().asFile
-        } else if (this is DowngradeJar) {
-            archiveFile.get().asFile
-        } else {
-            error("Unknown task type")
+        val zip = when (this) {
+            is Jar -> archiveFile.get().asFile
+            is DowngradeJar -> archiveFile.get().asFile
+            else -> error("Unknown task type")
         }
 
         try {
