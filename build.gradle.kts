@@ -90,8 +90,9 @@ version = versionString
 println("ZSON Version: $versionString")
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
 
     withSourcesJar()
     withJavadocJar()
@@ -140,7 +141,7 @@ tasks.jar {
     finalizedBy(tasks.downgradeJar, downgradeJar17)
 }
 
-val sourcesJar: Jar = tasks.withType<Jar>()["sourcesJar"].apply {
+val sourcesJar: Jar = tasks.getByName<Jar>("sourcesJar") {
     from(rootProject.file("LICENSE")) {
         rename { "${it}_${rootProject.name}" }
     }
@@ -155,8 +156,9 @@ val downgradedTest by tasks.registering(Test::class) {
     useJUnitPlatform()
     dependsOn(tasks.downgradeJar)
     outputs.upToDateWhen { false }
-    classpath =
-        tasks.downgradeJar.get().outputs.files + sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+    classpath = tasks.downgradeJar.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
 }
 
 val downgraded17Test by tasks.registering(Test::class) {
@@ -164,8 +166,9 @@ val downgraded17Test by tasks.registering(Test::class) {
     useJUnitPlatform()
     dependsOn(downgradeJar17)
     outputs.upToDateWhen { false }
-    classpath =
-        downgradeJar17.get().outputs.files + sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+    classpath = downgradeJar17.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
 }
 
 tasks.test {
@@ -186,17 +189,30 @@ val advzipInstalled by lazy {
     }
 }
 
-tasks.withType<org.gradle.jvm.tasks.Jar> {
+tasks.withType<Jar> {
     doLast {
         if (!advzipInstalled) {
-            println("advzip is not installed; skipping re-deflation otf $name")
+            println("advzip is not installed; skipping re-deflation of $name")
             return@doLast
         }
 
         val zip = archiveFile.get().asFile
 
         try {
-            val process = ProcessBuilder("advzip", "-z", "-4", zip.absolutePath).start()
+            val settings = mutableListOf("-4")
+            if(zip.length() < 20000) {
+                if(isRelease)
+                    settings.add("--iter=1000")
+                else
+                    settings.add("--iter=100")
+            } else {
+                if(isRelease)
+                    settings.add("--iter=100")
+                else
+                    settings.add("--iter=10")
+            }
+
+            val process = ProcessBuilder("advzip", "-z", *settings.toTypedArray(), zip.absolutePath).start()
             val exitCode = process.waitFor()
             if (exitCode != 0) {
                 error(process.inputStream.bufferedReader().readText())
