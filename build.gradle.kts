@@ -204,7 +204,7 @@ val advzipInstalled by lazy {
 }
 
 tasks.withType<Jar> {
-    if(name.contains("jmh")) return@withType // jmh jar is broken for some reason
+    if(group == "jmh") return@withType // jmh jar is broken for some reason
     doLast {
         if (!advzipInstalled) {
             println("advzip is not installed; skipping re-deflation of $name")
