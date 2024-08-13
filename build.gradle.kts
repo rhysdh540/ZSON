@@ -1,9 +1,5 @@
-import org.objectweb.asm.tools.Retrofitter
 import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
 import java.time.ZonedDateTime
-import java.util.jar.JarEntry
-import java.util.jar.JarOutputStream
-import java.util.zip.Deflater
 
 plugins {
     id("idea")
@@ -94,8 +90,9 @@ version = versionString
 println("ZSON Version: $versionString")
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
 
     withSourcesJar()
     withJavadocJar()
@@ -117,39 +114,13 @@ tasks.javadoc {
     options.addBooleanOption("Xdoclint:none", true)
 }
 
+jvmdg.apiJar.add(jvmdg.apiJarDefault)
+jvmdg.apiJar.add(file("buildSrc/build/libs/buildSrc.jar"))
+
 tasks.downgradeJar {
     dependsOn(tasks.jar)
-    downgradeTo = JavaVersion.VERSION_1_8
+    downgradeTo = JavaVersion.VERSION_1_5
     archiveClassifier = "downgraded-8"
-
-    doLast {
-        val jar = archiveFile.get().asFile
-        val dir = temporaryDir.resolve("downgradeJar5")
-        dir.mkdirs()
-
-        copy {
-            from(zipTree(jar))
-            into(dir)
-        }
-
-        Retrofitter().run {
-            retrofit(dir.toPath())
-            //verify(dir.toPath())
-        }
-
-        JarOutputStream(archiveFile.get().asFile.outputStream()).use { jos ->
-            jos.setLevel(Deflater.BEST_COMPRESSION)
-            dir.walkTopDown().forEach { file ->
-                if (file.isFile) {
-                    jos.putNextEntry(JarEntry(file.relativeTo(dir).toPath().toString()))
-                    file.inputStream().use { it.copyTo(jos) }
-                    jos.closeEntry()
-                }
-            }
-            jos.flush()
-            jos.finish()
-        }
-    }
 }
 
 val downgradeJar17 = tasks.register<DowngradeJar>("downgradeJar17") {
@@ -177,13 +148,76 @@ tasks.assemble {
     dependsOn(tasks.jar, sourcesJar, downgradeJar17)
 }
 
+val downgradedTest by tasks.registering(Test::class) {
+    group = "verification"
+    useJUnitPlatform()
+    dependsOn(tasks.downgradeJar)
+    outputs.upToDateWhen { false }
+    classpath = tasks.downgradeJar.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+}
+
+val downgraded17Test by tasks.registering(Test::class) {
+    group = "verification"
+    useJUnitPlatform()
+    dependsOn(downgradeJar17)
+    outputs.upToDateWhen { false }
+    classpath = downgradeJar17.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+}
+
 tasks.test {
     useJUnitPlatform()
     outputs.upToDateWhen { false }
+    finalizedBy(downgradedTest, downgraded17Test)
 }
 
 tasks.withType<GenerateModuleMetadata> {
     enabled = false
+}
+
+val advzipInstalled by lazy {
+    try {
+        ProcessBuilder("advzip", "-V").start().waitFor() == 0
+    } catch (e: Exception) {
+        false
+    }
+}
+
+tasks.withType<Jar> {
+    doLast {
+        if (!advzipInstalled) {
+            println("advzip is not installed; skipping re-deflation of $name")
+            return@doLast
+        }
+
+        val zip = archiveFile.get().asFile
+
+        try {
+            val settings = mutableListOf("-4")
+            if(zip.length() < 20000) {
+                if(isRelease)
+                    settings.add("--iter=1000")
+                else
+                    settings.add("--iter=100")
+            } else {
+                if(isRelease)
+                    settings.add("--iter=100")
+                else
+                    settings.add("--iter=10")
+            }
+
+            val process = ProcessBuilder("advzip", "-z", *settings.toTypedArray(), zip.absolutePath).start()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                error(process.inputStream.bufferedReader().readText())
+            }
+        } catch (e: Exception) {
+            error("Failed to compress $name: ${e.message}")
+        }
+    }
 }
 
 tasks.withType<JavaCompile> {
