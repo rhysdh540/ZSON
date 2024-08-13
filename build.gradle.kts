@@ -2,18 +2,26 @@ import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
 import java.time.ZonedDateTime
 
 plugins {
-    id("idea")
     id("java")
+    id("idea")
     id("maven-publish")
+    id("me.champeau.jmh")
     id("org.ajoberstar.grgit")
-    id("com.github.breadmoirai.github-release")
     id("xyz.wagyourtail.jvmdowngrader")
+    id("com.github.breadmoirai.github-release")
 }
 
 operator fun String.invoke(): String = rootProject.properties[this] as? String ?: error("Property $this not found")
 
 group = "maven_group"()
 base.archivesName = "project_name"()
+
+idea {
+    module {
+        isDownloadSources = true
+        isDownloadJavadoc = true
+    }
+}
 
 //region Git
 enum class ReleaseChannel(val suffix: String? = null) {
@@ -68,13 +76,10 @@ val patchHistory = releaseTags
     .map { name -> name.substring(minorTagPrefix.length) }
 
 val maxPatch = patchHistory.maxOfOrNull { it.substringBefore('-').toInt() }
-val patch =
-    maxPatch?.plus(
-        if (patchHistory.contains(maxPatch.toString()))
-            releaseIncrement
-        else
-            0
-    ) ?: 0
+val patch = if (maxPatch == null) 0
+                else if (patchHistory.contains(maxPatch.toString()))
+                    maxPatch + releaseIncrement
+                else maxPatch
 var patchAndSuffix = patch.toString()
 
 if (releaseChannel.suffix != null) {
@@ -174,6 +179,18 @@ tasks.test {
     finalizedBy(downgradedTest, downgraded17Test)
 }
 
+jmh {
+    jmhVersion = "jmh_version"()
+    includeTests = false
+    zip64 = false
+}
+
+tasks.forEach {
+    if (it.group == "jmh") {
+        it.outputs.upToDateWhen { false }
+    }
+}
+
 tasks.withType<GenerateModuleMetadata> {
     enabled = false
 }
@@ -187,6 +204,7 @@ val advzipInstalled by lazy {
 }
 
 tasks.withType<Jar> {
+    if(name.contains("jmh")) return@withType // jmh jar is broken for some reason
     doLast {
         if (!advzipInstalled) {
             println("advzip is not installed; skipping re-deflation of $name")
@@ -196,26 +214,24 @@ tasks.withType<Jar> {
         val zip = archiveFile.get().asFile
 
         try {
-            val settings = mutableListOf("-4")
-            if(zip.length() < 20000) {
-                if(isRelease)
-                    settings.add("--iter=1000")
-                else
-                    settings.add("--iter=100")
+            val iterations = if(zip.length() < 20000) {
+                if(isRelease) 1000
+                else 100
             } else {
-                if(isRelease)
-                    settings.add("--iter=100")
-                else
-                    settings.add("--iter=10")
+                if(isRelease) 100
+                else 10
             }
 
-            val process = ProcessBuilder("advzip", "-z", *settings.toTypedArray(), zip.absolutePath).start()
+            logger.info("running advzip on $name with ")
+
+            val process = ProcessBuilder("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
+                .start()
             val exitCode = process.waitFor()
             if (exitCode != 0) {
-                error(process.inputStream.bufferedReader().readText())
+                error("advzip finished with exit code $exitCode.\n${process.errorStream.bufferedReader().readText()}")
             }
         } catch (e: Exception) {
-            error("Failed to compress $name: ${e.message}")
+            throw IllegalStateException("Failed to compress $name", e)
         }
     }
 }
