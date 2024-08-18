@@ -1,9 +1,11 @@
-# IMPORTANT LICENSE NOTICE
+<details>
+<summary><h2>IMPORTANT LICENCE NOTICE</h2></summary>
 
 By using this project in any form, you hereby give your "express assent" for the terms of the license of this
 project (see [License](#license)), and acknowledge that I (the author of this project) have fulfilled my obligation
 under the license to "make a reasonable effort under the circumstances to obtain the express assent of recipients to
 the terms of this License".
+</details>
 
 # ZSON
 A tiny JSON5 parsing library for Java 8, with a focus on simplicity and minimizing size.

@@ -1,23 +1,27 @@
-import org.objectweb.asm.tools.Retrofitter
 import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
 import java.time.ZonedDateTime
-import java.util.jar.JarEntry
-import java.util.jar.JarOutputStream
-import java.util.zip.Deflater
 
 plugins {
-    id("idea")
     id("java")
+    id("idea")
     id("maven-publish")
+    id("me.champeau.jmh")
     id("org.ajoberstar.grgit")
-    id("com.github.breadmoirai.github-release")
     id("xyz.wagyourtail.jvmdowngrader")
+    id("com.github.breadmoirai.github-release")
 }
 
 operator fun String.invoke(): String = rootProject.properties[this] as? String ?: error("Property $this not found")
 
 group = "maven_group"()
 base.archivesName = "project_name"()
+
+idea {
+    module {
+        isDownloadSources = true
+        isDownloadJavadoc = true
+    }
+}
 
 //region Git
 enum class ReleaseChannel(val suffix: String? = null) {
@@ -72,13 +76,10 @@ val patchHistory = releaseTags
     .map { name -> name.substring(minorTagPrefix.length) }
 
 val maxPatch = patchHistory.maxOfOrNull { it.substringBefore('-').toInt() }
-val patch =
-    maxPatch?.plus(
-        if (patchHistory.contains(maxPatch.toString()))
-            releaseIncrement
-        else
-            0
-    ) ?: 0
+val patch = if (maxPatch == null) 0
+                else if (patchHistory.contains(maxPatch.toString()))
+                    maxPatch + releaseIncrement
+                else maxPatch
 var patchAndSuffix = patch.toString()
 
 if (releaseChannel.suffix != null) {
@@ -94,8 +95,9 @@ version = versionString
 println("ZSON Version: $versionString")
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
 
     withSourcesJar()
     withJavadocJar()
@@ -117,39 +119,13 @@ tasks.javadoc {
     options.addBooleanOption("Xdoclint:none", true)
 }
 
+jvmdg.apiJar.add(jvmdg.apiJarDefault)
+jvmdg.apiJar.add(file("buildSrc/build/libs/buildSrc.jar"))
+
 tasks.downgradeJar {
     dependsOn(tasks.jar)
-    downgradeTo = JavaVersion.VERSION_1_8
+    downgradeTo = JavaVersion.VERSION_1_5
     archiveClassifier = "downgraded-8"
-
-    doLast {
-        val jar = archiveFile.get().asFile
-        val dir = temporaryDir.resolve("downgradeJar5")
-        dir.mkdirs()
-
-        copy {
-            from(zipTree(jar))
-            into(dir)
-        }
-
-        Retrofitter().run {
-            retrofit(dir.toPath())
-            //verify(dir.toPath())
-        }
-
-        JarOutputStream(archiveFile.get().asFile.outputStream()).use { jos ->
-            jos.setLevel(Deflater.BEST_COMPRESSION)
-            dir.walkTopDown().forEach { file ->
-                if (file.isFile) {
-                    jos.putNextEntry(JarEntry(file.relativeTo(dir).toPath().toString()))
-                    file.inputStream().use { it.copyTo(jos) }
-                    jos.closeEntry()
-                }
-            }
-            jos.flush()
-            jos.finish()
-        }
-    }
 }
 
 val downgradeJar17 = tasks.register<DowngradeJar>("downgradeJar17") {
@@ -177,13 +153,87 @@ tasks.assemble {
     dependsOn(tasks.jar, sourcesJar, downgradeJar17)
 }
 
+val downgradedTest by tasks.registering(Test::class) {
+    group = "verification"
+    useJUnitPlatform()
+    dependsOn(tasks.downgradeJar)
+    outputs.upToDateWhen { false }
+    classpath = tasks.downgradeJar.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+}
+
+val downgraded17Test by tasks.registering(Test::class) {
+    group = "verification"
+    useJUnitPlatform()
+    dependsOn(downgradeJar17)
+    outputs.upToDateWhen { false }
+    classpath = downgradeJar17.get().outputs.files +
+            sourceSets.test.get().output +
+            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
+}
+
 tasks.test {
     useJUnitPlatform()
     outputs.upToDateWhen { false }
+    finalizedBy(downgradedTest, downgraded17Test)
+}
+
+jmh {
+    jmhVersion = "jmh_version"()
+    includeTests = false
+    zip64 = false
+}
+
+tasks.forEach {
+    if (it.group == "jmh") {
+        it.outputs.upToDateWhen { false }
+    }
 }
 
 tasks.withType<GenerateModuleMetadata> {
     enabled = false
+}
+
+val advzipInstalled by lazy {
+    try {
+        ProcessBuilder("advzip", "-V").start().waitFor() == 0
+    } catch (e: Exception) {
+        false
+    }
+}
+
+tasks.withType<Jar> {
+    if(group == "jmh") return@withType // jmh jar is broken for some reason
+    doLast {
+        if (!advzipInstalled) {
+            println("advzip is not installed; skipping re-deflation of $name")
+            return@doLast
+        }
+
+        val zip = archiveFile.get().asFile
+
+        try {
+            val iterations = if(zip.length() < 20000) {
+                if(isRelease) 1000
+                else 100
+            } else {
+                if(isRelease) 100
+                else 10
+            }
+
+            logger.info("running advzip on $name with ")
+
+            val process = ProcessBuilder("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
+                .start()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                error("advzip finished with exit code $exitCode.\n${process.errorStream.bufferedReader().readText()}")
+            }
+        } catch (e: Exception) {
+            throw IllegalStateException("Failed to compress $name", e)
+        }
+    }
 }
 
 tasks.withType<JavaCompile> {

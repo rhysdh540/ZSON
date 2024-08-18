@@ -20,6 +20,8 @@ public class ZsonTest {
 	@Test
 	public void makeSureTestsRun() {
 		System.out.println("Tests are running!");
+		System.out.println("Java version: " + System.getProperty("java.version"));
+		System.out.println("Java home: " + System.getProperty("java.home"));
 	}
 
 	@Test
