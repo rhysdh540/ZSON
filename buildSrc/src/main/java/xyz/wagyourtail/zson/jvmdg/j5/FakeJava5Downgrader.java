@@ -1,6 +1,6 @@
 package xyz.wagyourtail.zson.jvmdg.j5;
 
-import groovyjarjarasm.asm.Opcodes;
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FrameNode;

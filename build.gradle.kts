@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
 import java.time.ZonedDateTime
 
@@ -15,13 +16,6 @@ operator fun String.invoke(): String = rootProject.properties[this] as? String ?
 
 group = "maven_group"()
 base.archivesName = "project_name"()
-
-idea {
-    module {
-        isDownloadSources = true
-        isDownloadJavadoc = true
-    }
-}
 
 //region Git
 enum class ReleaseChannel(val suffix: String? = null) {
@@ -94,14 +88,45 @@ val versionTagName = "${releaseTagPrefix}${versionString}"
 version = versionString
 println("ZSON Version: $versionString")
 
+@Suppress("UNCHECKED_CAST")
+val supportedJavaVersions: List<Pair<String, JavaVersion>> =
+    (JsonSlurper().parseText("supported_java_versions"()) as List<Map<String, String>>)
+        .map { map ->
+            val version = map["version"]!!
+            val displayName = map["display"] ?: version
+            Pair(displayName, JavaVersion.toVersion(version))
+        }
+        .sortedByDescending { it.second.majorVersion.toInt() }
+        .toList()
+
+println("Java Versions: ${supportedJavaVersions.joinToString { it.first }}")
+
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of("java_version"()))
+        languageVersion.set(supportedJavaVersions.first().second.toLanguageVersion())
     }
 
     withSourcesJar()
     withJavadocJar()
 }
+
+idea {
+    module {
+        isDownloadSources = true
+        isDownloadJavadoc = true
+    }
+}
+
+jmh {
+    jmhVersion = libs.versions.jmh.asProvider()
+    includeTests = false
+    zip64 = false
+}
+
+jvmdg.apiJar.addAll(
+    jvmdg.apiJarDefault,
+    file("buildSrc/build/libs/buildSrc.jar")
+)
 
 repositories {
     mavenCentral()
@@ -114,33 +139,10 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
-tasks.javadoc {
-    val options = options as StandardJavadocDocletOptions
-    options.addBooleanOption("Xdoclint:none", true)
-}
-
-jvmdg.apiJar.add(jvmdg.apiJarDefault)
-jvmdg.apiJar.add(file("buildSrc/build/libs/buildSrc.jar"))
-
-tasks.downgradeJar {
-    dependsOn(tasks.jar)
-    downgradeTo = JavaVersion.VERSION_1_5
-    archiveClassifier = "downgraded-8"
-}
-
-val downgradeJar17 = tasks.register<DowngradeJar>("downgradeJar17") {
-    dependsOn(tasks.jar)
-    downgradeTo = JavaVersion.VERSION_17
-    inputFile = tasks.jar.get().archiveFile
-    archiveClassifier = "downgraded-17"
-}
-
 tasks.jar {
     from(rootProject.file("LICENSE")) {
         rename { "${it}_${rootProject.name}" }
     }
-
-    finalizedBy(tasks.downgradeJar, downgradeJar17)
 }
 
 val sourcesJar = tasks.getByName<Jar>("sourcesJar") {
@@ -149,113 +151,84 @@ val sourcesJar = tasks.getByName<Jar>("sourcesJar") {
     }
 }
 
-tasks.assemble {
-    dependsOn(tasks.jar, sourcesJar, downgradeJar17)
-}
+val jarsToRelease: Set<AbstractArchiveTask> = setOf(
+    sourcesJar,
+    tasks["javadocJar"] as Jar,
+    tasks.jar.get(),
+)
 
-val downgradedTest by tasks.registering(Test::class) {
-    group = "verification"
-    useJUnitPlatform()
-    dependsOn(tasks.downgradeJar)
-    outputs.upToDateWhen { false }
-    classpath = tasks.downgradeJar.get().outputs.files +
-            sourceSets.test.get().output +
-            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
-}
+supportedJavaVersions.forEach {
+    val (displayName, javaVersion) = it
+    val underscoreName = displayName.replace('.', '_')
 
-val downgraded17Test by tasks.registering(Test::class) {
-    group = "verification"
-    useJUnitPlatform()
-    dependsOn(downgradeJar17)
-    outputs.upToDateWhen { false }
-    classpath = downgradeJar17.get().outputs.files +
-            sourceSets.test.get().output +
-            sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output
-}
-
-tasks.test {
-    useJUnitPlatform()
-    outputs.upToDateWhen { false }
-    finalizedBy(downgradedTest, downgraded17Test)
-}
-
-jmh {
-    jmhVersion = libs.versions.jmh.asProvider()
-    includeTests = false
-    zip64 = false
-}
-
-tasks.forEach {
-    if (it.group == "jmh") {
-        it.outputs.upToDateWhen { false }
+    val dgJar = tasks.register<DowngradeJar>("downgradeJar$underscoreName") {
+        group = "jvmdowngrader"
+        description = "Downgrades the jar to Java $displayName"
+        downgradeTo = javaVersion
+        inputFile = tasks.jar.get().archiveFile
+        archiveClassifier = "downgraded-$underscoreName"
     }
-}
 
-tasks.withType<GenerateModuleMetadata> {
-    enabled = false
-}
-
-val advzipInstalled by lazy {
-    try {
-        ProcessBuilder("advzip", "-V").start().waitFor() == 0
-    } catch (e: Exception) {
-        false
+    val dgTest = tasks.register<Test>("downgradedTest$underscoreName") {
+        group = "verification"
+        description = "Runs tests on the downgraded jar for Java $displayName"
+        dependsOn(dgJar)
+        classpath = dgJar.get().outputs.files +
+                sourceSets.test.get().output +
+                (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output)
     }
+
+    tasks.assemble { dependsOn(dgJar) }
+    tasks.test { dependsOn(dgTest) }
 }
 
-tasks.withType<Jar> {
-    if(group == "jmh") return@withType // jmh jar is broken for some reason
-    doLast {
-        if (!advzipInstalled) {
-            println("advzip is not installed; skipping re-deflation of $name")
-            return@doLast
-        }
-
-        val zip = archiveFile.get().asFile
-
-        try {
-            val iterations = if(zip.length() < 20000) {
-                if(isRelease) 1000
-                else 100
-            } else {
-                if(isRelease) 100
-                else 10
+tasks {
+    forEach {
+        if (it.group == "jmh") {
+            it.outputs.upToDateWhen { false }
+        } else if (it is Jar) {
+            // note - don't run advzip on jmh jars
+            it.doLast {
+                advzip(it.archiveFile.get().asFile)
             }
-
-            logger.info("running advzip on $name with ")
-
-            val process = ProcessBuilder("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
-                .start()
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                error("advzip finished with exit code $exitCode.\n${process.errorStream.bufferedReader().readText()}")
-            }
-        } catch (e: Exception) {
-            throw IllegalStateException("Failed to compress $name", e)
         }
     }
-}
 
-tasks.withType<JavaCompile> {
-    options.encoding = "UTF-8"
-    sourceCompatibility = "java_version"()
-}
+    javadoc {
+        val options = options as StandardJavadocDocletOptions
+        options.addBooleanOption("Xdoclint:none", true)
+    }
 
-tasks.withType<AbstractArchiveTask> {
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
+    withType<Test> {
+        useJUnitPlatform()
+        outputs.upToDateWhen { false }
+    }
+
+    withType<AbstractArchiveTask> {
+        isPreserveFileTimestamps = false
+        isReproducibleFileOrder = true
+    }
+
+    withType<GenerateModuleMetadata> {
+        enabled = false
+    }
+
+    withType<JavaCompile> {
+        options.encoding = "UTF-8"
+        sourceCompatibility = supportedJavaVersions.first().second.majorVersion
+    }
+
+    this.filter { it.name == "githubRelease" || it is AbstractPublishToMaven }.forEach {
+        it.dependsOn(assemble, check)
+    }
 }
 
 githubRelease {
-    setToken(providers.environmentVariable("GITHUB_TOKEN"))
-    setTagName(versionTagName)
-    setTargetCommitish("master")
-    setReleaseName(versionString)
-    setReleaseAssets(tasks.jar.get().archiveFile, sourcesJar.archiveFile)
-}
-
-tasks.githubRelease {
-    dependsOn(tasks.assemble, tasks.check)
+    token(providers.environmentVariable("GITHUB_TOKEN"))
+    tagName = versionTagName
+    targetCommitish = "master"
+    releaseName = versionString
+    releaseAssets(jarsToRelease.map { it.archiveFile })
 }
 
 publishing {
@@ -266,15 +239,49 @@ publishing {
 
     publications {
         create<MavenPublication>("project_name"()) {
-            artifact(tasks.jar) // latest java
-            artifact(downgradeJar17) // java 17
-            artifact(tasks.downgradeJar) // java 8
-            artifact(sourcesJar) // java 21 sources
-            artifact(tasks["javadocJar"])
+            jarsToRelease.forEach { jar ->
+                artifact(jar.archiveFile)
+            }
         }
     }
 }
 
-tasks.withType<AbstractPublishToMaven> {
-    dependsOn(tasks.assemble, tasks.check)
+val advzipInstalled by lazy {
+    try {
+        ProcessBuilder("advzip", "-V").start().waitFor() == 0
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun advzip(zip: File) {
+    if (!advzipInstalled) {
+        println("advzip is not installed; skipping re-deflation of ${zip.name}")
+        return
+    }
+
+    try {
+        val iterations = if(zip.length() < 20000) {
+            if(isRelease) 1000
+            else 100
+        } else {
+            if(isRelease) 100
+            else 10
+        }
+
+        logger.info("running advzip on ${zip.name} with ")
+
+        val process = ProcessBuilder("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
+            .start()
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            error("advzip finished with exit code $exitCode.\n${process.errorStream.bufferedReader().readText()}")
+        }
+    } catch (e: Exception) {
+        throw IllegalStateException("Failed to compress ${zip.name}", e)
+    }
+}
+
+fun JavaVersion.toLanguageVersion(): JavaLanguageVersion {
+    return JavaLanguageVersion.of(this.majorVersion.toInt())
 }
