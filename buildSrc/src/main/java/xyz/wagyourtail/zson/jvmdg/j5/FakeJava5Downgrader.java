@@ -15,7 +15,7 @@ import java.util.Set;
 public class FakeJava5Downgrader extends VersionProvider {
 
     public FakeJava5Downgrader() {
-        super(Opcodes.V1_8, Opcodes.V1_5);
+        super(Opcodes.V1_8, Opcodes.V1_5, 1);
     }
 
     @Override
