@@ -2,13 +2,13 @@ import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
 import java.time.ZonedDateTime
 
 plugins {
-    id("java")
-    id("idea")
-    id("maven-publish")
-    id("me.champeau.jmh")
-    id("org.ajoberstar.grgit")
-    id("xyz.wagyourtail.jvmdowngrader")
-    id("com.github.breadmoirai.github-release")
+    java
+    idea
+    `maven-publish`
+    alias(libs.plugins.jmh)
+    alias(libs.plugins.grgit)
+    alias(libs.plugins.jvmdg)
+    alias(libs.plugins.github.release)
 }
 
 operator fun String.invoke(): String = rootProject.properties[this] as? String ?: error("Property $this not found")
@@ -96,7 +96,7 @@ println("ZSON Version: $versionString")
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of("java_version"()))
     }
 
     withSourcesJar()
@@ -108,10 +108,10 @@ repositories {
 }
 
 dependencies {
-    compileOnly("org.jetbrains:annotations:${"jetbrains_annotations_version"()}")
+    compileOnly(libs.jetbrains.annotations)
 
-    testImplementation("org.junit.jupiter:junit-jupiter:${"junit_version"()}")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.javadoc {
@@ -180,7 +180,7 @@ tasks.test {
 }
 
 jmh {
-    jmhVersion = "jmh_version"()
+    jmhVersion = libs.versions.jmh.asProvider()
     includeTests = false
     zip64 = false
 }
@@ -238,10 +238,7 @@ tasks.withType<Jar> {
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
-    sourceCompatibility = "21"
-    javaCompiler = javaToolchains.compilerFor {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
+    sourceCompatibility = "java_version"()
 }
 
 tasks.withType<AbstractArchiveTask> {
@@ -269,7 +266,7 @@ publishing {
 
     publications {
         create<MavenPublication>("project_name"()) {
-            artifact(tasks.jar) // java 21
+            artifact(tasks.jar) // latest java
             artifact(downgradeJar17) // java 17
             artifact(tasks.downgradeJar) // java 8
             artifact(sourcesJar) // java 21 sources

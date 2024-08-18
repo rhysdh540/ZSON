@@ -1,0 +1,26 @@
+[versions]
+## regular dependencies
+# https://central.sonatype.com/artifact/org.jetbrains/annotations
+annotations = "24.1.0"
+# https://central.sonatype.com/artifact/org.junit.jupiter/junit-jupiter
+junit-jupiter = "5.11.0"
+# https://central.sonatype.com/artifact/org.openjdk.jmh/jmh-core
+jmh = "1.37"
+
+## gradle plugins
+# https://plugins.gradle.org
+jmh-gradle-plugin = "0.7.2"
+jvmdg = "1.1.0"
+grgit = "5.2.2"
+gh-release = "2.4.1"
+
+[plugins]
+jvmdg = { id = "xyz.wagyourtail.jvmdowngrader", version.ref = "jvmdg" }
+jmh = { id = "me.champeau.jmh", version.ref = "jmh-gradle-plugin" }
+grgit = { id = "org.ajoberstar.grgit", version.ref = "grgit" }
+github-release = { id = "com.github.breadmoirai.github-release", version.ref = "gh-release" }
+
+[libraries]
+jetbrains-annotations = { group = "org.jetbrains", name = "annotations", version.ref = "annotations" }
+junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit-jupiter" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
