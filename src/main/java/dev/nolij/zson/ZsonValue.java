@@ -43,7 +43,7 @@ public final class ZsonValue {
 
 	@Override
 	public boolean equals(Object other) {
-		return (other instanceof ZsonValue v && Objects.equals(this.value, v.value)) || Objects.equals(other, this.value);
+		return (other instanceof ZsonValue v && Objects.equals(this.value, v.value));
 	}
 
 	@Override

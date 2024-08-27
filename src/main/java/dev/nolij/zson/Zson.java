@@ -33,7 +33,7 @@ public final class Zson {
 	 * Create a new entry with the given key, comment, and value.
 	 */
 	@NotNull
-	@Contract("_, _, _ -> new")
+	@Contract(value = "_, _, _ -> new", pure = true)
 	public static Map.Entry<String, ZsonValue> entry(@NotNull String key, @NotNull String comment, @Nullable Object value) {
 		return new AbstractMap.SimpleEntry<>(key, new ZsonValue(comment, value));
 	}
@@ -54,7 +54,7 @@ public final class Zson {
 	 */
 	@NotNull
 	@SafeVarargs
-	@Contract("_ -> new")
+	@Contract(value = "_ -> new", pure = true)
 	public static Map<String, ZsonValue> object(@NotNull Map.Entry<String, ZsonValue>... entries) {
 		Map<String, ZsonValue> map = new LinkedHashMap<>();
 		for (Map.Entry<String, ZsonValue> e : entries) {
@@ -69,7 +69,7 @@ public final class Zson {
 	 * @return a new JSON array with the given values.
 	 */
 	@NotNull
-	@Contract("_ -> new")
+	@Contract(value = "_ -> new", pure = true)
 	public static List<?> array(@NotNull Object... values) {
 		List<Object> list = new ArrayList<>();
 		Collections.addAll(list, values);
@@ -77,13 +77,23 @@ public final class Zson {
 		return list;
 	}
 
+	/**
+	 * Converts a string value in a map to the member of the specified enum class which has the same name as the string.
+	 * This operation will succeed if the value associated with the specified key is either a string
+	 * that has the same name as an enum constant in the enum class, or if
+	 * @param json The map to convert the string in
+	 * @param key the key in the map which the value the operation should be performed on
+	 * @param enumClass the class which the result enum constant is a member of
+	 * @param <E> the type of the enum class
+	 */
+	@Contract(mutates = "param1")
 	public static <E extends Enum<E>> void convertEnum(Map<String, ZsonValue> json, String key, Class<E> enumClass) {
 		ZsonValue value = json.get(key);
 		if(value == null) return;
 		if(value.value instanceof String s) {
 			json.put(key, new ZsonValue(value.comment, Enum.valueOf(enumClass, s)));
 		} else if(!enumClass.isInstance(value.value)) {
-			throw new IllegalArgumentException("Expected string, got " + value.value);
+			throw new IllegalArgumentException("Expected string or enum, got " + value.value);
 		}
 	}
 
@@ -93,7 +103,7 @@ public final class Zson {
 	 * @return the un-escaped string, or null if the input was null.
 	 */
 	@Nullable
-	@Contract("null -> null; !null -> !null")
+	@Contract(value = "null -> null; !null -> !null", pure = true)
 	public static String unescape(@Nullable String string) {
 		if (string == null || string.isEmpty())
 			return string;
@@ -167,7 +177,7 @@ public final class Zson {
 	 * @return the escaped string, or null if the input was null.
 	 */
 	@Nullable
-	@Contract("null, _ -> null; !null, _ -> !null")
+	@Contract(value = "null, _ -> null; !null, _ -> !null", pure = true)
 	public static String escape(@Nullable String string, char escapeQuotes) {
 		if (string == null || string.isEmpty())
 			return string;
@@ -227,10 +237,11 @@ public final class Zson {
 	 * @return a JSON map representing the object.
 	 */
 	@NotNull
-	@Contract("_ -> new")
+	@Contract(value = "_ -> new", pure = true)
 	public static Map<String, ZsonValue> obj2Map(@Nullable Object object) {
-		if(object == null) return object();
 		Map<String, ZsonValue> map = object();
+		if(object == null) return map;
+
 		for (Field field : object.getClass().getDeclaredFields()) {
 			if(!shouldInclude(field, true)) continue;
 			ZsonField annotation = field.getAnnotation(ZsonField.class);
@@ -278,7 +289,7 @@ public final class Zson {
 	 * @param <T> the type of object to create.
 	 */
 	@NotNull
-	@Contract("_ , _ -> new")
+	@Contract(value = "_ , _ -> new", pure = true)
 	@SuppressWarnings("unchecked")
 	public static <T> T map2Obj(@NotNull Map<String, ZsonValue> map, @NotNull Class<T> type) {
 		try {
@@ -505,11 +516,11 @@ public final class Zson {
 	 */
 	@Contract(mutates = "param")
 	private static Map<String, ZsonValue> parseObject(Reader input) throws IOException {
-		var map = object();
+		var result = object();
 
-		var comma = false;
-		var colon = false;
-		String key = null;
+		var expectComma = false;
+		var expectColon = false;
+		String currentKey = null;
 
 		while (true) {
 			if (skipWhitespace(input) || skipComment(input))
@@ -519,29 +530,29 @@ public final class Zson {
 			int ch = input.read();
 
 			if (ch == '}')
-				return map;
+				return result;
 
-			if (comma) {
+			if (expectComma) {
 				if (ch != ',')
 					throw new IllegalArgumentException("Expected comma, got " + (char) ch);
 
-				comma = false;
+				expectComma = false;
 				continue;
 			}
 
-			if (colon) {
+			if (expectColon) {
 				if (ch != ':')
 					throw new IllegalArgumentException("Expected colon, got " + (char) ch);
 
-				colon = false;
+				expectColon = false;
 				continue;
 			}
 
 			if (ch == -1)
 				throw unexpectedEOF();
 
-			if (key == null) {
-				key = switch (ch) {
+			if (currentKey == null) {
+				currentKey = switch (ch) {
 					case '"', '\'' -> unescape(parseString(input, (char) ch));
 					default -> {
 						if (Character.isJavaIdentifierStart(ch) || ch == '\\') {
@@ -551,13 +562,13 @@ public final class Zson {
 						}
 					}
 				};
-				colon = true;
+				expectColon = true;
 			} else {
 				input.reset();
 				Object value = parse(input);
-				map.put(key, new ZsonValue(value));
-				key = null;
-				comma = true;
+				result.put(currentKey, new ZsonValue(value));
+				currentKey = null;
+				expectComma = true;
 			}
 		}
 	}
@@ -569,8 +580,8 @@ public final class Zson {
 	 */
 	@Contract(mutates = "param")
 	private static List<Object> parseArray(Reader input) {
-		var list = new ArrayList<>();
-		boolean comma = false;
+		var result = new ArrayList<>();
+		boolean expectComma = false;
 
 		while (true) {
 			try {
@@ -580,13 +591,13 @@ public final class Zson {
 				input.mark(1);
 				int ch = input.read();
 				if (ch == ']')
-					return list;
+					return result;
 
-				if (comma) {
+				if (expectComma) {
 					if (ch != ',')
 						throw new IllegalArgumentException("Expected comma, got " + (char) ch);
 
-					comma = false;
+					expectComma = false;
 					continue;
 				}
 
@@ -595,8 +606,8 @@ public final class Zson {
 
 				input.reset();
 				Object value = parse(input);
-				list.add(value);
-				comma = true;
+				result.add(value);
+				expectComma = true;
 			} catch (IOException e) {
 				throw new IllegalArgumentException(e);
 			}
@@ -612,21 +623,21 @@ public final class Zson {
 	 */
 	@Contract(mutates = "param1")
 	private static String parseString(Reader input, char start) throws IOException {
-		int escapes = 0;
-		var output = new StringBuilder();
+		int numBackslashes = 0;
+		var result = new StringBuilder();
 		int c;
 
 		while ((c = input.read()) != -1) {
 			if (c == start) {
-				if (escapes == 0)
-					return output.toString();
+				if (numBackslashes == 0)
+					return result.toString();
 
-				output.append(Character.toChars(c));
-				escapes--;
+				result.append(Character.toChars(c));
+				numBackslashes--;
 			}
 
 			if (isLineTerminator(c)) {
-				if (escapes == 0) {
+				if (numBackslashes == 0) {
 					if (c == '\u2028' || c == '\u2029') {
 						System.err.println("[ZSON] Warning: unescaped line separator in string literal");
 					} else {
@@ -634,22 +645,22 @@ public final class Zson {
 					}
 				}
 
-				escapes = 0;
+				numBackslashes = 0;
 				continue;
 			}
 
 			if (c == '\\') {
-				escapes++;
-				if (escapes == 2) {
-					output.append("\\\\");
-					escapes = 0;
+				numBackslashes++;
+				if (numBackslashes == 2) {
+					result.append("\\\\");
+					numBackslashes = 0;
 				}
 			} else {
-				if (escapes == 1) {
-					output.append('\\');
+				if (numBackslashes == 1) {
+					result.append('\\');
 				}
-				output.append(Character.toChars(c));
-				escapes = 0;
+				result.append(Character.toChars(c));
+				numBackslashes = 0;
 			}
 		}
 		throw unexpectedEOF();
@@ -665,11 +676,11 @@ public final class Zson {
 	// TODO: handle multi-character escapes
 	@Contract(mutates = "param1")
 	private static String parseIdentifier(Reader input, int start) throws IOException {
-		var output = new StringBuilder();
+		var result = new StringBuilder();
 		boolean escaped = start == '\\';
 
 		if(!escaped)
-			output.append((char) start);
+			result.append((char) start);
 
 		int c;
 		input.mark(1);
@@ -678,7 +689,7 @@ public final class Zson {
 				if(c == 'n' || c == 'r') {
 					throw unexpected(c);
 				}
-				output.append(unescape("\\" + (char) c));
+				result.append(unescape("\\" + (char) c));
 				input.mark(1);
 				escaped = false;
 			} else if (c == '\\') {
@@ -686,10 +697,10 @@ public final class Zson {
 				escaped = true;
 			} else if (isIdentifierChar(c)) {
 				input.mark(1);
-				output.append(Character.toChars(c));
+				result.append(Character.toChars(c));
 			} else {
 				input.reset();
-				return output.toString();
+				return result.toString();
 			}
 		}
 
@@ -788,7 +799,15 @@ public final class Zson {
 	private static Number parseNumber(Reader input, char start) throws IOException {
 		switch (start) {
 			case '-' -> {
-				Number numberValue = parseNumber(input, (char) input.read());
+				int next = input.read();
+
+				if (next == -1) {
+					throw unexpectedEOF();
+				} else if (next == '-' || next == '+') {
+					throw new IllegalArgumentException("Invalid number: starts with '-" + (char) next + "'");
+				}
+
+				Number numberValue = parseNumber(input, (char) next);
 				return switch(numberValue) {
 					case Double d -> -d;
 					case Long l -> -l;
@@ -808,8 +827,9 @@ public final class Zson {
 				char[] chars = new char[7];
 				if ((input.read(chars) != 7))
 					throw unexpectedEOF();
-				if (!"nfinity".equals(new String(chars))) {
-					throw new IllegalArgumentException("Expected 'Infinity', got 'I" + new String(chars) + "'");
+				String rest = new String(chars);
+				if (!"nfinity".equals(rest)) {
+					throw new IllegalArgumentException("Expected 'Infinity', got 'I" + rest + "'");
 				}
 
 				return Double.POSITIVE_INFINITY;
@@ -860,23 +880,25 @@ public final class Zson {
 	 * @param c The first character of the number
 	 * @return One of:
 	 * <ul>
+	 *     <li>{@link Double} - for floating-point numbers</li>
 	 *     <li>{@link Integer} - for numbers that can be represented as an integer</li>
 	 *     <li>{@link Long} - for numbers that can be represented as a long</li>
 	 *     <li>{@link BigInteger} - for numbers that cannot be represented as an integer or long</li>
-	 *     <li>{@link Double} - for floating-point numbers</li>
 	 * </ul>
 	 * @throws IOException If an I/O error occurs
 	 */
 	@Contract(mutates = "param1")
 	private static Number parseDecimal(Reader input, char c) throws IOException {
-		StringBuilder stringValueBuilder = new StringBuilder().append(c);
+		StringBuilder stringValueBuilder = new StringBuilder();
 
-		int ch;
+		int ch = c;
 		input.mark(1);
-		while ((ch = input.read()) != -1) {
+		while (true) {
 			if (Character.isDigit(ch) || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-') {
 				input.mark(1);
 				stringValueBuilder.append(Character.toChars(ch));
+
+				ch = input.read();
 			} else {
 				input.reset();
 				String stringValue = stringValueBuilder.toString();
@@ -884,20 +906,18 @@ public final class Zson {
 					return Double.parseDouble(stringValue);
 				}
 
-				Number number = null;
+				Number result = null;
 				try {
 					BigInteger bigIntValue = new BigInteger(stringValue);
-					number = bigIntValue;
-					number = bigIntValue.longValueExact();
-					number = bigIntValue.intValueExact();
+					result = bigIntValue;
+					result = bigIntValue.longValueExact();
+					result = bigIntValue.intValueExact();
 				} catch (ArithmeticException ignored) {
 				}
 
-				return number;
+				return result;
 			}
 		}
-
-		throw unexpectedEOF();
 	}
 
 	/**

@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import dev.nolij.zson.ZsonField;
@@ -14,7 +15,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.nolij.zson.Zson.*;
 
-@SuppressWarnings({"unused", "DataFlowIssue", "FieldMayBeFinal"})
+@SuppressWarnings("ALL")
 public class ZsonTest {
 
 	@Test
@@ -412,6 +413,24 @@ public class ZsonTest {
 		assertEquals(TestEnum.ONE, obj.c);
 	}
 
+	@Test
+	public void testNonObjects() {
+		int i = parseString("-65");
+		assertEquals(-65, i);
+
+		assertThrows(IllegalArgumentException.class, () -> parseString("--65"));
+		assertThrows(IllegalArgumentException.class, () -> parseString("-+65"));
+		assertThrows(IllegalArgumentException.class, () -> parseString("+-65"));
+		assertThrows(IllegalArgumentException.class, () -> parseString("++65"));
+
+		boolean t = parseString("true");
+		assertTrue(t);
+		boolean f = parseString("false");
+		assertFalse(f);
+
+
+	}
+
 	public static class AllTypes {
 		public boolean bool;
 		public byte b;
@@ -427,15 +446,14 @@ public class ZsonTest {
 
 	public static class ObjectFields {
 		public int a;
-		public Set<String> set = new HashSet<>();
-		public AllTypes b = new AllTypes();
-		public TestEnum c = TestEnum.ONE;
-
-		{
+		public Set<String> set = new HashSet<>(); {
 			set.add("a");
 			set.add("b");
 			set.add("c");
 		}
+
+		public AllTypes b = new AllTypes();
+		public TestEnum c = TestEnum.ONE;
 	}
 
 	public enum TestEnum {
