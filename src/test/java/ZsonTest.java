@@ -6,6 +6,7 @@ import dev.nolij.zson.ZsonValue;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +28,7 @@ public class ZsonTest {
 	@Test
 	public void json5Spec() throws IOException {
 
-		Map<String, ZsonValue> map = parseFile(Path.of("spec.json5"));
+		Map<String, ZsonValue> map = parseFile(Paths.get("spec.json5"));
 
 		assertEquals(map, object(
 			entry("unquoted", "and you can quote me on that"),
@@ -225,7 +226,7 @@ public class ZsonTest {
 
 	@Test
 	public void testNonexistentFieldInMap() {
-		Map<String, ZsonValue> json = Map.of("such", new ZsonValue("working"));
+		Map<String, ZsonValue> json = object(entry("such", "working"));
 		TestObject obj = Zson.map2Obj(json, TestObject.class);
 		assertEquals("working", obj.such);
 		assertEquals(42, obj.wow);
@@ -326,7 +327,7 @@ public class ZsonTest {
 
 	@Test
 	public void newlinesInStrings() throws IOException {
-		Map<String, ZsonValue> map = parseFile(Path.of("multiline.json5")); // kept in a separate file because the newlines are weird
+		Map<String, ZsonValue> map = parseFile(Paths.get("multiline.json5")); // kept in a separate file because the newlines are weird
 
 		assertEquals("newline", map.get("cr").value);
 		assertEquals("newline", map.get("lf").value);

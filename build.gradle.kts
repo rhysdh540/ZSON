@@ -1,5 +1,6 @@
 import groovy.json.JsonSlurper
 import xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar
+import xyz.wagyourtail.jvmdg.gradle.task.files.DowngradeFiles
 import java.time.ZonedDateTime
 
 plugins {
@@ -89,21 +90,26 @@ version = versionString
 println("ZSON Version: $versionString")
 
 @Suppress("UNCHECKED_CAST")
-val supportedJavaVersions: List<Pair<String, JavaVersion>> =
+val allJavaVersions: List<Triple<String, JavaVersion, JavaVersion>> =
     (JsonSlurper().parseText("supported_java_versions"()) as List<Map<String, String>>)
         .map { map ->
-            val version = map["version"]!!
-            val displayName = map["display"] ?: version
-            Pair(displayName, JavaVersion.toVersion(version))
+            val version = map["version"]!! // main version to downgrade to
+            val displayName = map["display"] ?: version // display name
+            val test = map["test"] ?: version // what to downgrade tests to
+            Triple(displayName, JavaVersion.toVersion(version), JavaVersion.toVersion(test))
         }
         .sortedByDescending { it.second.majorVersion.toInt() }
         .toList()
 
-println("Java Versions: ${supportedJavaVersions.joinToString { it.first }}")
+println("Java Versions: ${allJavaVersions.joinToString { it.first }}")
+
+val currentJavaVersion = allJavaVersions.first().second
+
+val downgradingJavaVersions = allJavaVersions.filter { it.second.majorVersion.toInt() < currentJavaVersion.majorVersion.toInt() }
 
 java {
     toolchain {
-        languageVersion.set(supportedJavaVersions.first().second.toLanguageVersion())
+        languageVersion.set(currentJavaVersion.toLanguageVersion())
     }
 
     withSourcesJar()
@@ -157,8 +163,8 @@ val jarsToRelease: Set<AbstractArchiveTask> = setOf(
     tasks.jar.get(),
 )
 
-supportedJavaVersions.forEach {
-    val (displayName, javaVersion) = it
+downgradingJavaVersions.forEach {
+    val (displayName, javaVersion, testJavaVersion) = it
     val underscoreName = displayName.replace('.', '_')
 
     val dgJar = tasks.register<DowngradeJar>("downgradeJar$underscoreName") {
@@ -169,13 +175,23 @@ supportedJavaVersions.forEach {
         archiveClassifier = "downgraded-$underscoreName"
     }
 
+    val dgTestCompile = tasks.register<DowngradeFiles>("downgradeTestCompile$underscoreName") {
+        group = "jvmdowngrader"
+        description = "Downgrades the test compile classpath to Java $displayName"
+        downgradeTo = testJavaVersion
+        inputCollection = sourceSets.test.get().output
+    }
+
     val dgTest = tasks.register<Test>("downgradedTest$underscoreName") {
         group = "verification"
         description = "Runs tests on the downgraded jar for Java $displayName"
-        dependsOn(dgJar)
+        dependsOn(dgJar, dgTestCompile)
         classpath = dgJar.get().outputs.files +
-                sourceSets.test.get().output +
+                dgTestCompile.get().outputCollection +
                 (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output)
+        javaLauncher = javaToolchains.launcherFor {
+            languageVersion.set(testJavaVersion.toLanguageVersion())
+        }
     }
 
     tasks.assemble { dependsOn(dgJar) }
@@ -186,6 +202,9 @@ tasks {
     forEach {
         if (it.group == "jmh") {
             it.outputs.upToDateWhen { false }
+            if(it is AbstractArchiveTask) {
+                it.destinationDirectory = file("build/jmhlibs")
+            }
         } else if (it is Jar) {
             // note - don't run advzip on jmh jars
             it.doLast {
@@ -215,7 +234,7 @@ tasks {
 
     withType<JavaCompile> {
         options.encoding = "UTF-8"
-        sourceCompatibility = supportedJavaVersions.first().second.majorVersion
+        sourceCompatibility = currentJavaVersion.majorVersion
     }
 
     this.filter { it.name == "githubRelease" || it is AbstractPublishToMaven }.forEach {
