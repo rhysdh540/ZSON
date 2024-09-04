@@ -24,6 +24,7 @@ jobs:
           name: ZSON
           path: "build/libs/*.jar"
       - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v3
         with:
           name: Test Results
