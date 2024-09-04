@@ -14,10 +14,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
-      - name: :build
-        run: ./gradlew build -x test --stacktrace
+      - name: :assemble
+        run: ./gradlew assemble --stacktrace
       - name: :test
-        run: ./gradlew test --stacktrace
+        run: ./gradlew compileAllTests test --stacktrace
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:

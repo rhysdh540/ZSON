@@ -43,7 +43,6 @@ val releaseTags = grgit.tag.list()
 
 val isExternalCI = (rootProject.properties["external_publish"] as String?).toBoolean()
 val isRelease = rootProject.hasProperty("release_channel") || isExternalCI
-val releaseIncrement = if (isExternalCI) 0 else 1
 val releaseChannel: ReleaseChannel =
     if (isExternalCI) {
         val tagName = releaseTags.first().name
@@ -71,8 +70,8 @@ val patchHistory = releaseTags
 
 val maxPatch = patchHistory.maxOfOrNull { it.substringBefore('-').toInt() }
 val patch = if (maxPatch == null) 0
-                else if (patchHistory.contains(maxPatch.toString()))
-                    maxPatch + releaseIncrement
+                else if (patchHistory.contains(maxPatch.toString()) && !isExternalCI)
+                    maxPatch + 1
                 else maxPatch
 var patchAndSuffix = patch.toString()
 
@@ -162,6 +161,11 @@ val jarsToRelease: Set<AbstractArchiveTask> = setOf(
     tasks.jar.get(),
 )
 
+val compileAllTests by tasks.registering {
+    group = "verification"
+    description = "Compiles all tests"
+}
+
 downgradingJavaVersions.forEach {
     val (displayName, javaVersion, testJavaVersion) = it
     val underscoreName = displayName.replace('.', '_')
@@ -184,7 +188,7 @@ downgradingJavaVersions.forEach {
     val dgTest = tasks.register<Test>("downgradedTest$underscoreName") {
         group = "verification"
         description = "Runs tests on the downgraded jar for Java $displayName"
-        dependsOn(dgJar, dgTestCompile)
+        dependsOn(dgTestCompile, dgJar)
         classpath = dgJar.get().outputs.files +
                 dgTestCompile.get().outputCollection +
                 (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output - sourceSets.test.get().output)
@@ -193,6 +197,7 @@ downgradingJavaVersions.forEach {
         }
     }
 
+    compileAllTests.configure { dependsOn(dgTestCompile) }
     tasks.assemble { dependsOn(dgJar) }
     tasks.test { dependsOn(dgTest) }
 }
