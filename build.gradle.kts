@@ -32,13 +32,12 @@ val releaseTagPrefix = "release/"
 val releaseTags = grgit.tag.list()
     .filter { tag -> tag.name.startsWith(releaseTagPrefix) }
     .sortedWith { tag1, tag2 ->
-        if (tag1.commit.dateTime == tag2.commit.dateTime)
-            if (tag1.name.length != tag2.name.length)
-                return@sortedWith tag1.name.length.compareTo(tag2.name.length)
-            else
-                return@sortedWith tag1.name.compareTo(tag2.name)
+        if (tag1.commit.dateTime != tag2.commit.dateTime)
+            tag1.commit.dateTime.compareTo(tag2.commit.dateTime)
+        else if (tag1.name.length != tag2.name.length)
+            tag1.name.length.compareTo(tag2.name.length)
         else
-            return@sortedWith tag2.commit.dateTime.compareTo(tag1.commit.dateTime)
+            tag1.name.compareTo(tag2.name)
     }
     .dropWhile { tag -> tag.commit.dateTime > headDateTime }
 
@@ -103,7 +102,7 @@ val allJavaVersions: List<Triple<String, JavaVersion, JavaVersion>> =
 
 println("Java Versions: ${allJavaVersions.joinToString { it.first }}")
 
-val currentJavaVersion = allJavaVersions.first().second
+val currentJavaVersion: JavaVersion = allJavaVersions.first().second
 
 val downgradingJavaVersions = allJavaVersions.filter { it.second.majorVersion.toInt() < currentJavaVersion.majorVersion.toInt() }
 
@@ -188,7 +187,7 @@ downgradingJavaVersions.forEach {
         dependsOn(dgJar, dgTestCompile)
         classpath = dgJar.get().outputs.files +
                 dgTestCompile.get().outputCollection +
-                (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output)
+                (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output - sourceSets.test.get().output)
         javaLauncher = javaToolchains.launcherFor {
             languageVersion.set(testJavaVersion.toLanguageVersion())
         }

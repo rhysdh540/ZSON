@@ -10,7 +10,6 @@ jmh = "1.37"
 ## gradle plugins
 # https://plugins.gradle.org
 jmh-gradle-plugin = "0.7.2"
-#jvmdg = "1.1.0"
 grgit = "5.2.2"
 gh-release = "2.4.1"
 
