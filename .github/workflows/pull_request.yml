@@ -17,13 +17,15 @@ jobs:
           cache-read-only: true
       - name: :assemble
         run: ./gradlew assemble --stacktrace
+      - name: :compileAllTests
+        run: ./gradlew compileAllTests --stacktrace
       - name: :test
-        run: ./gradlew compileAllTests test --stacktrace
+        run: ./gradlew test --stacktrace
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: ZSON
-          path: "**/zson-*.jar"
+          path: "build/libs/*.jar"
       - name: Upload test results
         uses: actions/upload-artifact@v3
         with:

@@ -16,8 +16,10 @@ jobs:
           cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
       - name: :assemble
         run: ./gradlew assemble --stacktrace
+      - name: :compileAllTests
+        run: ./gradlew compileAllTests --stacktrace
       - name: :test
-        run: ./gradlew compileAllTests test --stacktrace
+        run: ./gradlew test --stacktrace
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:

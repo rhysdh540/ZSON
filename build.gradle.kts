@@ -190,7 +190,7 @@ downgradingJavaVersions.forEach {
         description = "Runs tests on the downgraded jar for Java $displayName"
         dependsOn(dgTestCompile, dgJar)
         classpath = dgJar.get().outputs.files +
-                dgTestCompile.get().outputCollection +
+                dgTestCompile.get().outputs.files +
                 (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output - sourceSets.test.get().output)
         javaLauncher = javaToolchains.launcherFor {
             languageVersion.set(testJavaVersion.toLanguageVersion())
