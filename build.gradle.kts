@@ -143,13 +143,7 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
-tasks.jar {
-    from(rootProject.file("LICENSE")) {
-        rename { "${it}_${rootProject.name}" }
-    }
-}
-
-val sourcesJar = tasks.getByName<Jar>("sourcesJar") {
+val sourcesJar by tasks.getting(Jar::class) {
     from(rootProject.file("LICENSE")) {
         rename { "${it}_${rootProject.name}" }
     }
@@ -217,6 +211,12 @@ tasks {
         }
     }
 
+    jar {
+        from(rootProject.file("LICENSE")) {
+            rename { "${it}_${rootProject.name}" }
+        }
+    }
+
     javadoc {
         val options = options as StandardJavadocDocletOptions
         options.addBooleanOption("Xdoclint:none", true)
@@ -241,7 +241,7 @@ tasks {
         sourceCompatibility = currentJavaVersion.majorVersion
     }
 
-    this.filter { it.name == "githubRelease" || it is AbstractPublishToMaven }.forEach {
+    filter { it.name == "githubRelease" || it is AbstractPublishToMaven }.forEach {
         it.dependsOn(assemble, check)
     }
 }

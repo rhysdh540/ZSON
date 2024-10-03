@@ -12,6 +12,7 @@ jmh = "1.37"
 jmh-gradle-plugin = "0.7.2"
 grgit = "5.2.2"
 gh-release = "2.4.1"
+jvmdg = "1.1.2"
 
 [plugins]
 jvmdg = { id = "xyz.wagyourtail.jvmdowngrader" }
