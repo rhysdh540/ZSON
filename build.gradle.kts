@@ -87,23 +87,25 @@ val versionTagName = "${releaseTagPrefix}${versionString}"
 version = versionString
 println("ZSON Version: $versionString")
 
+data class DowngradeInfo(val displayName: String, val version: JavaVersion, val testVersion: JavaVersion)
+
 @Suppress("UNCHECKED_CAST")
-val allJavaVersions: List<Triple<String, JavaVersion, JavaVersion>> =
+val allJavaVersions: List<DowngradeInfo> =
     (JsonSlurper().parseText("supported_java_versions"()) as List<Map<String, String>>)
         .map { map ->
             val version = map["version"]!! // main version to downgrade to
             val displayName = map["display"] ?: version // display name
             val test = map["test"] ?: version // what to downgrade tests to
-            Triple(displayName, JavaVersion.toVersion(version), JavaVersion.toVersion(test))
+            DowngradeInfo(displayName, JavaVersion.toVersion(version), JavaVersion.toVersion(test))
         }
-        .sortedByDescending { it.second.majorVersion.toInt() }
+        .sortedByDescending { it.version.majorVersion.toInt() }
         .toList()
 
-println("Java Versions: ${allJavaVersions.joinToString { it.first }}")
+println("Java Versions: ${allJavaVersions.joinToString { it.displayName }}")
 
-val currentJavaVersion: JavaVersion = allJavaVersions.first().second
+val currentJavaVersion: JavaVersion = allJavaVersions.first().version
 
-val downgradingJavaVersions = allJavaVersions.filter { it.second.majorVersion.toInt() < currentJavaVersion.majorVersion.toInt() }
+val downgradingJavaVersions = allJavaVersions.filter { it.version.majorVersion.toInt() < currentJavaVersion.majorVersion.toInt() }
 
 java {
     toolchain {
@@ -114,11 +116,9 @@ java {
     withJavadocJar()
 }
 
-idea {
-    module {
-        isDownloadSources = true
-        isDownloadJavadoc = true
-    }
+idea.module {
+    isDownloadSources = true
+    isDownloadJavadoc = true
 }
 
 jmh {
@@ -149,7 +149,7 @@ val sourcesJar by tasks.getting(Jar::class) {
     }
 }
 
-val jarsToRelease: Set<AbstractArchiveTask> = setOf(
+val jarsToRelease = mutableSetOf<AbstractArchiveTask>(
     sourcesJar,
     tasks["javadocJar"] as Jar,
     tasks.jar.get(),
@@ -161,21 +161,23 @@ val compileAllTests by tasks.registering {
 }
 
 downgradingJavaVersions.forEach {
-    val (displayName, javaVersion, testJavaVersion) = it
+    val displayName = it.displayName
     val underscoreName = displayName.replace('.', '_')
 
     val dgJar = tasks.register<DowngradeJar>("downgradeJar$underscoreName") {
         group = "jvmdowngrader"
         description = "Downgrades the jar to Java $displayName"
-        downgradeTo = javaVersion
+        downgradeTo = it.version
         inputFile = tasks.jar.get().archiveFile
         archiveClassifier = "downgraded-$underscoreName"
+
+        jarsToRelease.add(this)
     }
 
     val dgTestCompile = tasks.register<DowngradeFiles>("downgradeTestCompile$underscoreName") {
         group = "jvmdowngrader"
         description = "Downgrades the test compile classpath to Java $displayName"
-        downgradeTo = testJavaVersion
+        downgradeTo = it.testVersion
         inputCollection = sourceSets.test.get().output
     }
 
@@ -187,7 +189,7 @@ downgradingJavaVersions.forEach {
                 dgTestCompile.get().outputs.files +
                 (sourceSets.test.get().runtimeClasspath - sourceSets.main.get().output - sourceSets.test.get().output)
         javaLauncher = javaToolchains.launcherFor {
-            languageVersion.set(testJavaVersion.toLanguageVersion())
+            languageVersion.set(it.testVersion.toLanguageVersion())
         }
     }
 
