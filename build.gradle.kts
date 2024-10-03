@@ -285,26 +285,19 @@ fun advzip(zip: File) {
         return
     }
 
-    try {
-        val iterations = if(zip.length() < 20000) {
-            if(isRelease) 1000
-            else 100
-        } else {
-            if(isRelease) 100
-            else 10
-        }
-
-        logger.info("running advzip on ${zip.name} with ")
-
-        val process = ProcessBuilder("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
-            .start()
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            error("advzip finished with exit code $exitCode.\n${process.errorStream.bufferedReader().readText()}")
-        }
-    } catch (e: Exception) {
-        throw IllegalStateException("Failed to compress ${zip.name}", e)
+    val iterations = if(zip.length() < 20000) {
+        if(isRelease) 1000
+        else 100
+    } else {
+        if(isRelease) 100
+        else 10
     }
+
+    println("running advzip on ${zip.name} with $iterations iterations")
+
+    exec {
+        commandLine("advzip", "-z", "-4", "--iter=$iterations", zip.absolutePath)
+    }.rethrowFailure().assertNormalExitValue()
 }
 
 fun JavaVersion.toLanguageVersion(): JavaLanguageVersion {
